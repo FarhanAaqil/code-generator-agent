@@ -1,0 +1,16 @@
+# API keys / secrets
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# ChromaDB local storage
+memory_db/
+
+# Streamlit logs
+logs/
+
+# Venv if you have one
+venv/
+.venv/
