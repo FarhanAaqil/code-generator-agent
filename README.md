@@ -1,59 +1,34 @@
-# Code Generator Agent 🤖
+# Code Generator Agent
 
-> A self-improving AI agent that generates Python code, critiques it for quality, benchmarks performance, and learns from past failures — entirely free to run.
+> A Groq-powered LLM agent that generates Python code from natural-language prompts, executes it in a subprocess sandbox, auto-repairs errors, and streams results — zero-cost stack.
 
-**Stack:** Groq (Llama 3.3-70B) · ChromaDB · Sentence Transformers · Streamlit · Plotly
-
----
-
-## What it does
-
-You give it a coding task in plain English. The agent:
-
-1. **Checks memory** — searches past failures semantically to avoid repeating mistakes
-2. **Generates code** — streams Python code token by token via Groq LLM
-3. **Validates in sandbox** — runs the code in an isolated subprocess, auto-retries on failure
-4. **Critiques for quality** — a second LLM pass flags O(n²) algorithms, edge case gaps, redundant logic
-5. **Rewrites if needed** — applies critique feedback and re-validates
-6. **Benchmarks improvement** — measures runtime (timeit) and memory (tracemalloc) before vs after
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
+[![Groq](https://img.shields.io/badge/LLM-Groq%20%7C%20Llama%203.3%2070B-F55036?style=flat)](https://console.groq.com)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 
 ---
 
-## Architecture
+## What It Does
 
+The Code Generator Agent takes a plain-English coding task, generates a Python solution using Llama 3.3 70B via the Groq API, runs it inside an isolated subprocess, and automatically feeds errors back to the LLM for repair — looping until the code executes successfully or the retry limit is reached.
+
+**Example prompts:**
 ```
-Task Input
-    │
-    ▼
-┌─────────────────────────────────────────────────────────┐
-│  Phase 1 — Memory Lookup                                │
-│  ChromaDB semantic search → inject past failure context │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│  Phase 2 — Generator Agent                              │
-│  Groq LLM → code → subprocess sandbox → auto-retry     │
-│  On failure: store to ChromaDB vector memory            │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│  Phase 3 — Critique Agent                               │
-│  LLM reviews for efficiency + correctness               │
-│  APPROVED / REWRITE → generator rewrites → re-validates │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│  Phase 4 — Benchmark (if code was rewritten)            │
-│  timeit (runtime) + tracemalloc (memory)                │
-│  before vs after comparison with delta %                │
-└─────────────────────────────────────────────────────────┘
-                     │
-                     ▼
-             Final Code + Analytics
+Write a function to reverse a linked list
+Generate a FastAPI endpoint that accepts a JSON body and returns a summary
+Write a Python script to scrape headlines from a news page
+Implement quicksort and benchmark it against Python's sorted()
 ```
+
+---
+
+## Features
+
+- **Natural-language → runnable Python** — Single prompt to working code
+- **Subprocess sandbox** — Generated code runs in isolation; no access to the host environment
+- **Auto-repair loop** — On runtime error, the error message and traceback are appended to the prompt and the LLM tries again (configurable max retries)
+- **Zero cost** — Groq free tier + local execution, no paid APIs or cloud compute
+- **Streaming output** — See tokens as they arrive from the Groq API
 
 ---
 
@@ -61,25 +36,24 @@ Task Input
 
 ```
 code-generator-agent/
-├── app.py                  # Streamlit UI (5 tabs)
-├── main.py                 # CLI entry point
-├── config.py               # All settings and constants
-├── generator.py            # Generator agent with streaming
-├── critique.py             # Critique agent with verdict parser
-├── sandbox.py              # subprocess code execution sandbox
-├── benchmark.py            # timeit + tracemalloc benchmarking
-├── memory.py               # ChromaDB vector memory (CRUD + search)
-├── evaluate.py             # HumanEval benchmark engine
-├── humaneval_problems.py   # 20 benchmark problems (easy/medium/hard)
+├── main.py              ← CLI entry point
+├── agent.py             ← Core generation + repair loop
+├── sandbox.py           ← Subprocess code runner
+├── config.py            ← Model name, retry limit, prompt templates
 ├── requirements.txt
-└── README.md
+└── logs/
+    └── attempts.jsonl   ← Every generation attempt logged
 ```
 
 ---
 
-## Quick Start
+## Setup
 
-### 1. Clone and install
+### 1. Get a free Groq API key
+
+Visit [console.groq.com](https://console.groq.com) — sign up and create a key. No credit card required.
+
+### 2. Clone and install
 
 ```bash
 git clone https://github.com/FarhanAaqil/code-generator-agent.git
@@ -87,129 +61,91 @@ cd code-generator-agent
 pip install -r requirements.txt
 ```
 
-### 2. Set your Groq API key
-
-Create a `.env` file in the project root (never committed):
+### 3. Set your API key
 
 ```bash
-GROQ_API_KEY=gsk_your_key_here
+# Linux / macOS
+export GROQ_API_KEY="your_key_here"
+
+# Windows (PowerShell)
+$env:GROQ_API_KEY = "your_key_here"
 ```
 
-Get a free key at [console.groq.com](https://console.groq.com).
+Or create a `.env` file:
 
-### 3. Run
-
-**Streamlit UI:**
-
-```bash
-streamlit run app.py
+```env
+GROQ_API_KEY=your_key_here
 ```
 
-**CLI:**
+### 4. Run
 
 ```bash
-python main.py "Write a function that finds all prime numbers up to n using the Sieve of Eratosthenes"
+python main.py
+```
 
-# With options:
-python main.py "your task" --retries 5 --critique 3
-python main.py "your task" --no-memory --no-benchmark
-python main.py "your task" --model llama-3.1-8b-instant
+You'll be prompted to enter a coding task. The agent will generate code, run it, and display the output. If execution fails, it retries automatically.
+
+---
+
+## How It Works
+
+```
+User prompt
+    │
+    ▼
+┌─────────────────┐
+│  Groq API call  │  Llama 3.3 70B generates Python code
+│  (agent.py)     │
+└────────┬────────┘
+         │ code string
+         ▼
+┌─────────────────┐
+│    Sandbox      │  subprocess.run() with timeout
+│  (sandbox.py)   │  captures stdout, stderr, exit code
+└────────┬────────┘
+         │
+    ┌────┴────┐
+    │ success │ → print output, log attempt, done
+    │         │
+    │  error  │ → append traceback to prompt, retry (max N times)
+    └─────────┘
 ```
 
 ---
 
-## Features
+## Configuration
 
-### 🤖 Agent Tab
+Edit `config.py` to adjust:
 
-- Type any Python coding task and press **Enter** to run
-- **Prompt enhancer** — LLM rewrites vague tasks into precise specs
-- **Task templates** — 5 pre-built prompt structures
-- **Streaming output** — watch code generate token by token
-- **Attempt timeline** — visual chart of each attempt's result
-- **Code diff viewer** — side-by-side diff of original vs critiqued code
-- **Download button** — export final `.py` file
-
-### 📐 HumanEval Tab
-
-- 20 curated problems across easy / medium / hard difficulty
-- Runs **Agent** (retry + critique loop) vs **Baseline** (single shot)
-- Reports pass@1 %, per-difficulty breakdown, per-problem results
-- Trend chart across multiple runs, CSV export
-
-### 📈 Analytics Tab
-
-- Attempts-per-task chart
-- Cumulative success rate over time
-- Critique rewrite impact
-- Memory retrieval hit rate
-
-### 🧠 Memory Explorer Tab
-
-- Semantic search across all stored failures
-- Paginated browser, delete individual entries or clear all
-- Storage stats: total entries, disk size, timestamps
-
-### ⚙️ Settings Tab
-
-- LLM: model, temperature, max tokens
-- Agent: retries, critique rounds, sandbox timeout, benchmark runs
-- Feature toggles: critique, memory, benchmark, diff viewer, auto-enhance
-- Export / Import all settings as JSON
+```python
+MODEL = "llama-3.3-70b-versatile"   # Groq model
+MAX_RETRIES = 3                      # Max auto-repair attempts
+SANDBOX_TIMEOUT = 10                 # Seconds before subprocess is killed
+LOG_PATH = "logs/attempts.jsonl"     # Attempt log file
+```
 
 ---
 
 ## Zero-Cost Stack
 
-| Component     | Tool                                 | Cost |
-| ------------- | ------------------------------------ | ---- |
-| LLM inference | Groq free tier (Llama 3.3-70B)       | Free |
-| Vector memory | ChromaDB local                       | Free |
-| Embeddings    | sentence-transformers (runs locally) | Free |
-| Code sandbox  | Python subprocess                    | Free |
-| UI            | Streamlit                            | Free |
+| Component | Tool | Cost |
+|---|---|---|
+| LLM | Groq API — Llama 3.3 70B | Free tier |
+| Code execution | Python `subprocess` | Free |
+| Logging | JSONL file | Free |
 
 ---
 
-## CLI Flags
+## Related Projects
 
-```
-python main.py "<task>"
-  --model         Model ID (default: llama-3.3-70b-versatile)
-  --retries N     Max fix retries (default: 5)
-  --critique N    Max critique rounds (default: 3)
-  --no-memory     Disable vector memory
-  --no-critique   Disable critique agent
-  --no-benchmark  Disable benchmark
-```
-
----
-
-## Benchmark Results
-
-Typical results after a full HumanEval run:
-
-```
-Agent pass@1:    85.0% (17/20)
-Baseline pass@1: 60.0% (12/20)
-Improvement:    +25.0%
-Avg attempts:    1.8
-```
-
----
-
-## Roadmap
-
-- [x] Week 1 — Core agent + sandbox + Streamlit UI
-- [x] Week 2 — Critique agent + benchmark + ChromaDB memory + HumanEval
-- [ ] Week 3 — Multi-agent debate (Proposer vs Adversary)
-- [ ] Week 4 — Long-term memory with periodic pruning
-- [ ] Week 5 — GitHub Actions CI for automated benchmark regression
+This agent is the foundation of [self-improving-agent](https://github.com/FarhanAaqil/self-improving-agent), which extends it with a Critique Agent, ChromaDB vector memory, HumanEval benchmarking, and a Streamlit UI.
 
 ---
 
 ## Author
 
-**Farhan Aaqil** — AI/ML Engineer  
-GitHub: [github.com/FarhanAaqil](https://github.com/FarhanAaqil)  
-LinkedIn: [linkedin.com/in/farhan-aaqil-4730432bb](https://linkedin.com/in/farhan-aaqil-4730432bb)
+**Farhan Aaqil Durrani**
+B.Tech AI/ML — JPNCE Mahbubnagar, Telangana
+
+[![GitHub](https://img.shields.io/badge/GitHub-FarhanAaqil-181717?style=flat&logo=github)](https://github.com/FarhanAaqil)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-farhan--aaqil-0A66C2?style=flat&logo=linkedin)](https://linkedin.com/in/farhan-aaqil-4730432bb)
